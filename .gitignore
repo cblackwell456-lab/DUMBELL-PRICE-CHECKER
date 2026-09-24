@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/prices-local.json
+data/tracker.log

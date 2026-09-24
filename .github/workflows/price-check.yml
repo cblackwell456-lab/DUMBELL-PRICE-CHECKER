@@ -1,0 +1,50 @@
+name: Dumbbell price check
+
+on:
+  # The tracker is set up to run on your own PC (Amazon blocks cloud servers
+  # more often). To ALSO run it hourly from GitHub, remove the "#" on the two
+  # lines below. Expect duplicate alerts while both are running.
+  # schedule:
+  #   - cron: "47 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Only open a test alert issue (to confirm notifications reach you)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: price-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+      - name: Check prices
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tracker.py ${{ inputs.test_alert && '--test-alert' || '' }}
+
+      - name: Save price history
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/prices.json 2>/dev/null || true
+          if git diff --cached --quiet; then echo "No history changes"; exit 0; fi
+          git commit -m "Update dumbbell price history"
+          git push

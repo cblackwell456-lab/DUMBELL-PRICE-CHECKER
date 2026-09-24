@@ -1,11 +1,10 @@
 name: Dumbbell price check
 
 on:
-  # The tracker is set up to run on your own PC (Amazon blocks cloud servers
-  # more often). To ALSO run it hourly from GitHub, remove the "#" on the two
-  # lines below. Expect duplicate alerts while both are running.
-  # schedule:
-  #   - cron: "47 * * * *"
+  # Checks hourly (at :47 past each hour, UTC). GitHub may start scheduled
+  # runs a few minutes late when it is busy.
+  schedule:
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       test_alert:
@@ -47,4 +46,5 @@ jobs:
           git add data/prices.json 2>/dev/null || true
           if git diff --cached --quiet; then echo "No history changes"; exit 0; fi
           git commit -m "Update dumbbell price history"
+          git pull --rebase origin "$GITHUB_REF_NAME"
           git push

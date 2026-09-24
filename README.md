@@ -12,49 +12,44 @@ on [Amazon](https://www.amazon.com/dp/B0BSR6JN85) every hour and alerts you when
 Alerts don't repeat every hour. Each one fires once and fires again only if the price
 drops further, or after the price recovers and drops again.
 
-## Run it on your PC (recommended)
+## How it runs: GitHub Actions (on)
 
-Amazon often blocks requests from cloud servers but rarely blocks a home internet
-connection, so running on your own computer is the most reliable setup. Checks only
-happen while the PC is on.
+`.github/workflows/price-check.yml` runs the check on GitHub's servers **every hour**,
+even when your computer is off. When an alert fires, it opens a GitHub issue that
+@mentions you, and GitHub emails you (or pushes it to the GitHub mobile app).
+
+- Each check takes about 1 minute of GitHub Actions time. This repo is private, and
+  GitHub's free plan includes 2,000 minutes a month, so hourly checks use roughly
+  720–1,500 of them. If the minutes ever run out, checks pause until the next month
+  (nothing is charged unless you have set up a spending limit).
+- To run a check now, or to send a test alert: *Actions → Dumbbell price check →
+  Run workflow*.
+- To stop it: *Actions → Dumbbell price check → ⋯ → Disable workflow*.
+- If Amazon blocks the tracker for 6 checks in a row, it opens a "tracker can't read
+  price" issue. It closes that issue automatically once it reads a price again.
+
+## Optional: run it on your PC instead
+
+Amazon rarely blocks home internet connections, so this is a fallback if GitHub gets
+blocked a lot. Checks only happen while the PC is on, and alerts appear as desktop
+pop-ups. If you switch to this, disable the GitHub workflow to avoid duplicate alerts.
 
 1. Install **Python 3** from <https://www.python.org/downloads/>. On Windows, tick
    *"Add python.exe to PATH"* during install.
-2. Download this repo (green **Code** button → *Download ZIP*, then unzip it, or `git clone` it).
+2. Download this repo (green **Code** button → *Download ZIP*, then unzip it).
 3. Schedule the hourly check. This also runs one check straight away:
    - **Windows:** open PowerShell in the folder and run
      `powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1`
    - **Mac / Linux:** open a terminal in the folder and run `sh setup_mac_linux.sh`
+4. Optional: copy `.env.example` to `.env` and add a GitHub token to also get
+   GitHub-issue alerts from your PC.
 
-When an alert fires you'll get a **desktop notification**.
-
-**Optional: phone and email alerts.** Copy `.env.example` to `.env` and paste in a GitHub
-token (the file explains how to create one). Each alert then also opens a GitHub issue,
-and GitHub emails it to you and pushes it to the GitHub mobile app.
-
-Run a single check by hand at any time:
-
-```sh
-python tracker.py              # check now
-python tracker.py --dry-run    # check without saving or opening issues
-python tracker.py --test-alert # send a test notification
-```
+Manual commands: `python tracker.py` (check now), `python tracker.py --dry-run`
+(check without saving), `python tracker.py --test-alert` (test notification).
 
 To stop:
 - **Windows:** `Unregister-ScheduledTask -TaskName "Dumbbell Price Tracker"`
 - **Mac / Linux:** `crontab -l | grep -v tracker.py | crontab -`
-
-## Run it on GitHub instead (or as well)
-
-`.github/workflows/price-check.yml` can run the same check on GitHub's servers every
-hour, even when your PC is off. Alerts arrive as GitHub issues and no setup is needed.
-It is **off by default** because Amazon blocks GitHub's servers more often. To turn it
-on, uncomment the `schedule:` lines in that file. Test notifications with
-*Actions → Dumbbell price check → Run workflow → test_alert*.
-
-If Amazon blocks the tracker for 6 checks in a row, it opens a "tracker can't read
-price" issue (or shows a notification). It closes that issue automatically once it
-reads a price again.
 
 ## Settings & more products
 

@@ -18,10 +18,10 @@ drops further, or after the price recovers and drops again.
 even when your computer is off. When an alert fires, it opens a GitHub issue that
 @mentions you, and GitHub emails you (or pushes it to the GitHub mobile app).
 
-- Each check takes about 1 minute of GitHub Actions time. This repo is private, and
-  GitHub's free plan includes 2,000 minutes a month, so hourly checks use roughly
-  720–1,500 of them. If the minutes ever run out, checks pause until the next month
-  (nothing is charged unless you have set up a spending limit).
+- It's free: GitHub Actions has no minute limit for public repositories.
+- GitHub pauses scheduled workflows in public repos after 60 days with no activity.
+  The tracker saves its price history at least once a day, which counts as activity,
+  so it stays on.
 - To run a check now, or to send a test alert: *Actions → Dumbbell price check →
   Run workflow*.
 - To stop it: *Actions → Dumbbell price check → ⋯ → Disable workflow*.

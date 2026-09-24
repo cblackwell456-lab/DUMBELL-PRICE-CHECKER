@@ -1,0 +1,20 @@
+{
+  "products": {
+    "amazon-B0BSR6JN85": {
+      "name": "PowerBlock Elite USA 90 lb Adjustable Dumbbells (pair, 5-90 lb)",
+      "url": "https://www.amazon.com/dp/B0BSR6JN85?psc=1",
+      "state": {
+        "consecutive_failures": 0,
+        "on_sale": false
+      },
+      "history": [
+        {
+          "t": "2026-09-24T20:45:29Z",
+          "price": 869.0,
+          "list_price": null,
+          "on_sale": false
+        }
+      ]
+    }
+  }
+}

@@ -14,6 +14,7 @@ Uses only the Python standard library so it runs anywhere with Python 3.9+.
 import argparse
 import gzip
 import html
+import http.cookiejar
 import json
 import os
 import random
@@ -21,6 +22,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,14 +36,31 @@ DATA_PATH = ROOT / "data" / ("prices.json" if os.environ.get("GITHUB_ACTIONS") =
 # How often to write a history entry when nothing changed (keeps a daily trace
 # without committing on every hourly run).
 HEARTBEAT = timedelta(hours=20)
+# How stale the saved "last successful read" time may get before it is
+# refreshed. Refreshing on every success would commit after nearly every run.
+LAST_SUCCESS_RESOLUTION = timedelta(hours=3)
 
+# These user agents and headers are the combination measured to get past
+# Amazon's robot check from GitHub's servers (when the homepage is visited first).
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/128.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/17.5 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
 ]
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+}
 
 CAPTCHA_MARKERS = (
     "validateCaptcha",
@@ -69,19 +88,9 @@ class BlockedError(FetchError):
 # Fetching
 # --------------------------------------------------------------------------
 
-def fetch(url, timeout=30):
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip",
-            "Cache-Control": "no-cache",
-        },
-    )
+def _get(opener, url, headers, timeout):
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
             body = resp.read()
             if resp.headers.get("Content-Encoding") == "gzip":
                 body = gzip.decompress(body)
@@ -93,6 +102,26 @@ def fetch(url, timeout=30):
         raise FetchError(f"HTTP {e.code} from {url}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise FetchError(f"Network error fetching {url}: {e}") from e
+
+
+def fetch(url, timeout=30, sleep=time.sleep):
+    """Fetch a product page the way a browser would: open the store's homepage
+    first (picking up its cookies), then the product page.
+
+    Amazon serves its robot check to most requests that go straight to a product
+    page from a server, but almost never when the homepage was visited first.
+    """
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    headers = dict(BROWSER_HEADERS, **{"User-Agent": random.choice(USER_AGENTS)})
+    parts = urllib.parse.urlsplit(url)
+    home = f"{parts.scheme}://{parts.netloc}/"
+    try:
+        _get(opener, home, headers, timeout)
+        sleep(random.uniform(1.5, 3))
+    except FetchError as e:
+        print(f"  (homepage visit failed, trying the product page anyway: {e})")
+    headers.update({"Referer": home, "Sec-Fetch-Site": "same-origin"})
+    return _get(opener, url, headers, timeout)
 
 
 def fetch_snapshot(url, fetcher=fetch, attempts=3, sleep=time.sleep):
@@ -481,25 +510,35 @@ def check_product(product, record, cfg, notifier, now, fetcher=fetch, sleep=time
     state = record.setdefault("state", {})
     print(f"Checking {product['name']}")
 
+    # Older versions counted failures in a row; that changed the saved file
+    # (and made a commit) on every failed run.
+    state.pop("consecutive_failures", None)
+
     try:
         snapshot = fetch_snapshot(product["url"], fetcher=fetcher, sleep=sleep)
     except FetchError as e:
-        failures = state.get("consecutive_failures", 0) + 1
-        state["consecutive_failures"] = failures
-        print(f"  FAILED ({failures} in a row): {e}")
-        if failures >= cfg["failure_alert_after"] and not state.get("error_issue"):
+        last_ok = state.get("last_success") or (record.get("history") or [{}])[-1].get("t")
+        hours = (now - _parse_time(last_ok)).total_seconds() / 3600 if last_ok else None
+        print(f"  FAILED: {e}" + (f" (last good read about {hours:.0f}h ago)" if hours is not None else ""))
+        # Amazon blocks a good share of individual checks, so only raise an alert
+        # when nothing has got through for a long stretch.
+        limit = cfg.get("failure_alert_hours", 24)
+        if (hours is None or hours >= limit) and not state.get("error_issue"):
+            since = f"for about {hours:.0f} hours" if hours is not None else "since tracking started"
             state["error_issue"] = notifier.open(
                 f"⚠️ Price tracker can't read {product['name']}",
-                f"The last {failures} checks failed. Latest error:\n\n```\n{e}\n```\n\n"
-                "Amazon sometimes blocks automated requests; the tracker keeps retrying every run "
+                f"Every check has failed {since}. Latest error:\n\n```\n{e}\n```\n\n"
+                "Amazon sometimes blocks automated requests; the tracker keeps retrying every hour "
                 "and will close this issue automatically once it reads a price again.\n\n"
                 f"[Product page]({product['url']})",
                 "tracker-error",
-                short=f"{failures} checks in a row failed: {e}",
+                short=f"No price read {since}: {e}",
             ) or True
         return
 
-    state["consecutive_failures"] = 0
+    last_ok = state.get("last_success")
+    if not last_ok or now - _parse_time(last_ok) >= LAST_SUCCESS_RESOLUTION or state.get("error_issue"):
+        state["last_success"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     if state.get("error_issue"):
         if isinstance(state["error_issue"], int):
             notifier.close(state["error_issue"], "✅ The tracker is reading prices again.")

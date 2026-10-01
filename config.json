@@ -2,7 +2,7 @@
   "alert_below": 700,
   "drop_percent": 10,
   "drop_lookback_days": 30,
-  "failure_alert_after": 6,
+  "failure_alert_hours": 24,
   "products": [
     {
       "id": "amazon-B0BSR6JN85",

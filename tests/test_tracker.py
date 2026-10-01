@@ -1,4 +1,7 @@
+import http.server
+import json
 import sys
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -7,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import tracker  # noqa: E402
 
-CFG = {"alert_below": 700, "drop_percent": 10, "drop_lookback_days": 30, "failure_alert_after": 3}
+CFG = {"alert_below": 700, "drop_percent": 10, "drop_lookback_days": 30, "failure_alert_hours": 24}
 NOW = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
 PRODUCT = {"id": "amazon-TEST", "name": "PowerBlock Elite USA 90 lb (pair)",
            "url": "https://www.amazon.com/dp/B0BSR6JN85"}
@@ -199,31 +202,100 @@ class CheckProductTests(unittest.TestCase):
         self.assertEqual(label, "price-alert")
         self.assertEqual(record["history"][-1]["price"], 679.00)
 
-    def test_failures_open_then_close_error_issue(self):
+    def check(self, record, notifier, fetcher, when):
+        tracker.check_product(PRODUCT, record, CFG, notifier, when, fetcher=fetcher, sleep=lambda s: None)
+
+    @staticmethod
+    def blocked(url):
+        raise tracker.BlockedError("Amazon served a CAPTCHA / robot check page")
+
+    def test_occasional_failures_do_not_alert_or_change_saved_state(self):
         record, notifier = {}, FakeNotifier()
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW)
+        saved = json.dumps(record, sort_keys=True)
+        for hour in range(1, 24):
+            self.check(record, notifier, self.blocked, NOW + timedelta(hours=hour))
+        self.assertEqual(notifier.opened, [])
+        # Failed runs leave the saved file untouched, so they don't make commits.
+        self.assertEqual(json.dumps(record, sort_keys=True), saved)
 
-        def blocked(url):
-            raise tracker.BlockedError("HTTP 503")
-
-        for _ in range(3):
-            tracker.check_product(PRODUCT, record, CFG, notifier, NOW, fetcher=blocked, sleep=lambda s: None)
+    def test_error_issue_after_24h_without_a_read_then_closed(self):
+        record, notifier = {}, FakeNotifier()
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW)
+        for hour in range(1, 30):
+            self.check(record, notifier, self.blocked, NOW + timedelta(hours=hour))
+        # Exactly one issue, opened at the 24-hour mark.
         self.assertEqual([o[2] for o in notifier.opened], ["tracker-error"])
-        # A fourth failure must not open a duplicate issue.
-        tracker.check_product(PRODUCT, record, CFG, notifier, NOW, fetcher=blocked, sleep=lambda s: None)
-        self.assertEqual(len(notifier.opened), 1)
+        self.assertIn("24 hours", notifier.opened[0][1])
 
-        tracker.check_product(PRODUCT, record, CFG, notifier, NOW,
-                              fetcher=lambda url: amazon_page(849.00), sleep=lambda s: None)
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW + timedelta(hours=30))
         self.assertEqual(notifier.closed, [1])
         self.assertNotIn("error_issue", record["state"])
+        self.assertEqual(record["state"]["last_success"], "2026-09-25T18:00:00Z")
+
+    def test_first_ever_run_failing_alerts(self):
+        record, notifier = {}, FakeNotifier()
+        self.check(record, notifier, self.blocked, NOW)
+        self.assertEqual(len(notifier.opened), 1)
+
+    def test_old_failure_counter_is_dropped(self):
+        record, notifier = {"state": {"consecutive_failures": 7}}, FakeNotifier()
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW)
+        self.assertNotIn("consecutive_failures", record["state"])
+
+    def test_last_success_refreshed_only_every_few_hours(self):
+        record, notifier = {}, FakeNotifier()
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW)
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW + timedelta(hours=1))
+        self.assertEqual(record["state"]["last_success"], "2026-09-24T12:00:00Z")
+        self.check(record, notifier, lambda url: amazon_page(849.00), NOW + timedelta(hours=3))
+        self.assertEqual(record["state"]["last_success"], "2026-09-24T15:00:00Z")
 
     def test_retry_recovers_from_one_captcha(self):
         pages = iter(["validateCaptcha", amazon_page(849.00)])
         record, notifier = {}, FakeNotifier()
-        tracker.check_product(PRODUCT, record, CFG, notifier, NOW,
-                              fetcher=lambda url: next(pages), sleep=lambda s: None)
+        self.check(record, notifier, lambda url: next(pages), NOW)
         self.assertEqual(record["history"][-1]["price"], 849.00)
-        self.assertEqual(record["state"]["consecutive_failures"], 0)
+
+
+class FetchTests(unittest.TestCase):
+    """fetch() against a local server that, like Amazon, serves its robot check
+    unless the visitor opened the homepage (and got its cookie) first."""
+
+    def setUp(self):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/":
+                    body, extra = b"<html>home</html>", [("Set-Cookie", "session-id=abc; Path=/")]
+                elif "session-id=abc" in (self.headers.get("Cookie") or ""):
+                    body, extra = amazon_page(869.00).encode(), []
+                else:
+                    body, extra = b"<form action='/errors/validateCaptcha'></form>", []
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                for k, v in extra:
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}/dp/B0BSR6JN85?psc=1"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def test_homepage_cookie_carried_to_product_page(self):
+        page = tracker.fetch(self.url, sleep=lambda s: None)
+        self.assertEqual(tracker.parse_amazon(page)["price"], 869.00)
+
+    def test_direct_request_gets_robot_check(self):
+        with self.assertRaises(tracker.BlockedError):
+            tracker.parse_amazon(tracker._get(tracker.urllib.request.build_opener(), self.url, {}, 10))
 
 
 class HistoryTests(unittest.TestCase):

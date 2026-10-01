@@ -25,8 +25,9 @@ even when your computer is off. When an alert fires, it opens a GitHub issue tha
 - To run a check now, or to send a test alert: *Actions → Dumbbell price check →
   Run workflow*.
 - To stop it: *Actions → Dumbbell price check → ⋯ → Disable workflow*.
-- If Amazon blocks the tracker for 6 checks in a row, it opens a "tracker can't read
-  price" issue. It closes that issue automatically once it reads a price again.
+- Amazon blocks some individual checks; that's expected and the next hour retries.
+  Only if no check gets through for 24 hours does it open a "tracker can't read
+  price" issue, which it closes automatically once it reads a price again.
 
 ## Optional: run it on your PC instead
 
@@ -60,7 +61,7 @@ Edit `config.json`:
   "alert_below": 700,        // alert when the price is under this
   "drop_percent": 10,        // alert on a drop of this % from the recent high
   "drop_lookback_days": 30,  // "recent high" window
-  "failure_alert_after": 6,  // failed checks in a row before an error alert
+  "failure_alert_hours": 24, // hours with no successful read before an error alert
   "products": [{ "id": "...", "name": "...", "url": "..." }]
 }
 ```

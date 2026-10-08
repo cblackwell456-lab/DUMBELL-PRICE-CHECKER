@@ -5,7 +5,7 @@
       "url": "https://www.amazon.com/dp/B0BSR6JN85?psc=1",
       "state": {
         "on_sale": true,
-        "last_success": "2026-10-07T20:58:45Z",
+        "last_success": "2026-10-08T01:04:41Z",
         "drop_alert_price": 738.65
       },
       "history": [
@@ -151,6 +151,12 @@
           "t": "2026-10-07T23:56:10Z",
           "price": 738.65,
           "list_price": null,
+          "on_sale": true
+        },
+        {
+          "t": "2026-10-08T01:04:41Z",
+          "price": 738.65,
+          "list_price": 869.0,
           "on_sale": true
         }
       ]

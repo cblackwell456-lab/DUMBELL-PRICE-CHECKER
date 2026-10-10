@@ -187,6 +187,12 @@
           "price": 869.0,
           "list_price": null,
           "on_sale": false
+        },
+        {
+          "t": "2026-10-10T21:57:36Z",
+          "price": 869.0,
+          "list_price": null,
+          "on_sale": false
         }
       ]
     }

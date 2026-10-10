@@ -5,7 +5,7 @@
       "url": "https://www.amazon.com/dp/B0BSR6JN85?psc=1",
       "state": {
         "on_sale": false,
-        "last_success": "2026-10-09T20:59:46Z"
+        "last_success": "2026-10-10T01:05:13Z"
       },
       "history": [
         {
@@ -178,6 +178,12 @@
         },
         {
           "t": "2026-10-09T04:00:36Z",
+          "price": 869.0,
+          "list_price": null,
+          "on_sale": false
+        },
+        {
+          "t": "2026-10-10T01:05:13Z",
           "price": 869.0,
           "list_price": null,
           "on_sale": false

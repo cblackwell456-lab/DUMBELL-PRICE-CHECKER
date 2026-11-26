@@ -4,8 +4,9 @@
       "name": "PowerBlock Elite USA 90 lb Adjustable Dumbbells (pair, 5-90 lb)",
       "url": "https://www.amazon.com/dp/B0BSR6JN85?psc=1",
       "state": {
-        "on_sale": false,
-        "last_success": "2026-11-26T03:11:33Z"
+        "on_sale": true,
+        "last_success": "2026-11-26T13:13:16Z",
+        "drop_alert_price": 738.65
       },
       "history": [
         {
@@ -487,6 +488,12 @@
           "price": 869.0,
           "list_price": null,
           "on_sale": false
+        },
+        {
+          "t": "2026-11-26T13:13:16Z",
+          "price": 738.65,
+          "list_price": 869.0,
+          "on_sale": true
         }
       ]
     }
